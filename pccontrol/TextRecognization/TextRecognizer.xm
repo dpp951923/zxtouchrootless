@@ -69,39 +69,100 @@ NSString* performTextRecognizerTextFromRawData(UInt8* eventData, NSError** error
         // parse languages part
         NSArray *languages = [languagesData componentsSeparatedByString:@",,"];
 
-        // screen shot
-        CGImageRef screenshot = [Screen createScreenShotCGImageRef];
+                // OCR 内部截图，由 finally 统一释放。
+        CGImageRef screenshot = NULL;
+        VKOcrManager *ocrManager = nil;
 
-        int orientation = [Screen getScreenOrientation];
-
-        // init
-        VKOcrManager* ocrManager = [[VKOcrManager alloc] initWithCGImage:screenshot area:recognizeRect orientation:orientation];
-
-        // set properties
-        if ([customWords count] > 1 || ![customWords[0] isEqualToString:@""])
+        @try
         {
-            NSLog(@"com.zjx.springboard: custom words set. Count: %d", [customWords count]);
-            [ocrManager setCustomWords:customWords];
+            screenshot = [Screen createScreenShotCGImageRef];
+
+            // 截图失败时，不再继续创建 OCR 对象。
+            if (screenshot == NULL)
+            {
+                if (error != NULL)
+                {
+                    *error = [NSError
+                        errorWithDomain:@"com.zjx.zxtouchsp"
+                        code:999
+                        userInfo:@{
+                            NSLocalizedDescriptionKey:
+                                @"-1;;Unable to capture screenshot for OCR\r\n"
+                        }];
+                }
+
+                return nil;
+            }
+
+            int orientation = [Screen getScreenOrientation];
+
+            ocrManager = [[VKOcrManager alloc]
+                initWithCGImage:screenshot
+                area:recognizeRect
+                orientation:orientation];
+
+            if (ocrManager == nil)
+            {
+                if (error != NULL)
+                {
+                    *error = [NSError
+                        errorWithDomain:@"com.zjx.zxtouchsp"
+                        code:999
+                        userInfo:@{
+                            NSLocalizedDescriptionKey:
+                                @"-1;;Unable to create OCR manager\r\n"
+                        }];
+                }
+
+                return nil;
+            }
+
+            // 保留原来的自定义词汇配置。
+            if (customWords.count > 1 ||
+                (customWords.count == 1 &&
+                 ![customWords[0] isEqualToString:@""]))
+            {
+                [ocrManager setCustomWords:customWords];
+            }
+
+            [ocrManager setMinimumHeight:minimumHeight];
+            [ocrManager setRecognitionLevel:level];
+
+            // 保留原来的识别语言配置。
+            if (languages.count > 1 ||
+                (languages.count == 1 &&
+                 ![languages[0] isEqualToString:@""]))
+            {
+                [ocrManager setLanguages:languages];
+            }
+
+            [ocrManager setCorrection:correct];
+
+            // 执行 OCR。
+            NSString *result = [ocrManager recognize:error];
+
+            // 识别成功且设置了路径时，才输出调试图片。
+            // 必须在释放 manager 之前执行。
+            if (result != nil && debugPath.length > 0)
+            {
+                [ocrManager outputDebugImage:debugPath error:error];
+            }
+
+            return result;
         }
-        [ocrManager setMinimumHeight:minimumHeight];
-        [ocrManager setRecognitionLevel:level];
-        if ([languages count] > 1 || ![languages[0] isEqualToString:@""])
+        @finally
         {
-            NSLog(@"com.zjx.springboard: languages set.");
-            [ocrManager setLanguages:languages];
+            // 已修复 completion block 循环引用，
+            // manager 及其持有的对象由 ARC 清理。
+            ocrManager = nil;
+
+            // 释放本次创建的截图引用，只释放一次。
+            if (screenshot != NULL)
+            {
+                CGImageRelease(screenshot);
+                screenshot = NULL;
+            }
         }
-        [ocrManager setCorrection:correct];
-
-        NSString* result = [ocrManager recognize:error];
-
-        if (debugPath && ![debugPath isEqualToString:@""])
-        {
-            [ocrManager outputDebugImage:debugPath error:error];
-        }
-
-        CFRelease(screenshot);
-        
-        return result;
     }
     else if (task == TASK_GET_SUPPORTED_LANGUAGE_LIST)
     {
