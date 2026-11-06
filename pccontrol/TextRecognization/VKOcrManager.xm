@@ -75,10 +75,7 @@
             requestHandler = [[VNImageRequestHandler alloc] initWithCIImage:image options:nil];
         }
 
-        request = [[VNRecognizeTextRequest alloc] initWithCompletionHandler:^(VNRequest *request, NSError *error){
-            requestResult = request;
-            errorResult = error;
-        }];
+        request = [[VNRecognizeTextRequest alloc] init];
 
         // may cause crash
         if (SYSTEM_VERSION_LESS_THAN(@"14.0"))
@@ -117,14 +114,37 @@ Return the string from a area
     inProgress = true;
 
     NSError *err = nil;
-    [requestHandler performRequests:@[request] error:&err];
-
-    if (err)
-    {
-        NSLog(@"com.zjx.springboard: error happened while performing ocr. %@", err);
-        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"-1;;Error happened while performing ocr. Error: %@\r\n", err]}];
-        return nil;
-    }
+	BOOL succeeded =
+	    [requestHandler performRequests:@[request] error:&err];
+	
+	// performRequests 返回时，请求已经完成或失败。
+	// 直接保存结果，供后续文字解析和调试图片输出使用。
+	requestResult = request;
+	errorResult = err;
+	
+	if (!succeeded || err != nil)
+	{
+	    inProgress = NO;
+	
+	    NSString *message =
+	        err.localizedDescription ?: @"Vision OCR failed";
+	
+	    NSLog(@"com.zjx.springboard: OCR failed: %@", message);
+	
+	    if (error != NULL)
+	    {
+	        *error = [NSError
+	            errorWithDomain:@"com.zjx.zxtouchsp"
+	            code:999
+	            userInfo:@{
+	                NSLocalizedDescriptionKey:
+	                    [NSString stringWithFormat:
+	                        @"-1;;OCR failed: %@\r\n", message]
+	            }];
+	    }
+	
+	    return nil;
+	}
     
     NSMutableArray<NSString*>* stringList = [[NSMutableArray alloc] init];
 
